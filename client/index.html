@@ -1,10 +1,10 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-CN">
 
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Scrcpy集群远程控制</title>
+  <title>Android设备管理器</title>
   <link rel="stylesheet" href="style.css">
   <!-- 添加Broadway H.264解码器 -->
   <script src="https://cdn.jsdelivr.net/npm/broadway-player@0.3.0/Decoder.min.js"></script>
@@ -14,25 +14,16 @@
 <body>
   <div class="container">
     <header>
-      <h1>Scrcpy集群远程控制</h1>
+      <h1>Android设备管理器</h1>
       <div class="controls">
-        <button id="refresh">刷新设备列表</button>
-        <button id="add-device">添加设备</button>
+        <button id="refresh">刷新设备</button>
       </div>
     </header>
 
+    <!-- 状态消息会通过JS动态插入到这里 -->
+
     <div class="devices-container" id="devices-container">
       <!-- 设备卡片将通过JS动态添加 -->
-    </div>
-
-    <div class="modal" id="device-modal">
-      <div class="modal-content">
-        <span class="close">&times;</span>
-        <h2>选择设备</h2>
-        <div id="device-list">
-          <!-- 设备列表将通过JS动态添加 -->
-        </div>
-      </div>
     </div>
   </div>
 

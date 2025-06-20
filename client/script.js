@@ -1,7 +1,6 @@
-class ScrcpyClient {
+class DeviceManager {
   constructor() {
     this.ws = null;
-    this.devices = {};
     this.reconnectAttempts = 0;
     this.maxReconnectAttempts = 5;
     this.connectWebSocket();
@@ -10,7 +9,7 @@ class ScrcpyClient {
 
   connectWebSocket() {
     try {
-      this.ws = new WebSocket("ws://localhost:666");
+      this.ws = new WebSocket("ws://192.168.14.173:666");
       this.setupEventListeners();
     } catch (error) {
       console.error("Failed to create WebSocket connection:", error);
@@ -26,6 +25,7 @@ class ScrcpyClient {
       console.log("Connected to WebSocket server");
       this.reconnectAttempts = 0;
       this.refreshDevices();
+      this.showStatus("已连接到服务器", "success");
     });
 
     this.ws.addEventListener("message", (event) => {
@@ -39,24 +39,12 @@ class ScrcpyClient {
 
     this.ws.addEventListener("close", () => {
       console.log("Disconnected from WebSocket server");
+      this.showStatus("与服务器断开连接", "error");
       this.scheduleReconnect();
     });
 
     this.ws.addEventListener("error", (error) => {
       console.error("WebSocket error:", error);
-    });
-
-    // UI事件
-    document.getElementById("refresh").addEventListener("click", () => {
-      this.refreshDevices();
-    });
-
-    document.getElementById("add-device").addEventListener("click", () => {
-      this.showDeviceModal();
-    });
-
-    document.querySelector(".close").addEventListener("click", () => {
-      this.hideDeviceModal();
     });
   }
 
@@ -71,6 +59,7 @@ class ScrcpyClient {
     const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts), 10000);
     
     console.log(`Attempting to reconnect in ${delay}ms (attempt ${this.reconnectAttempts})`);
+    this.showStatus(`正在重连... (${this.reconnectAttempts}/${this.maxReconnectAttempts})`, "warning");
     
     setTimeout(() => {
       this.connectWebSocket();
@@ -78,26 +67,28 @@ class ScrcpyClient {
   }
 
   setupUI() {
-    // 添加控制按钮事件委托
-    document
-      .getElementById("devices-container")
-      .addEventListener("click", (e) => {
-        if (e.target.classList.contains("control-btn")) {
-          const deviceId = e.target.closest(".device-card").dataset.deviceId;
-          const command = e.target.dataset.command;
-          this.sendControlCommand(deviceId, command);
-        }
+    // 刷新按钮事件
+    document.getElementById("refresh").addEventListener("click", () => {
+      this.refreshDevices();
+    });
 
-        if (e.target.classList.contains("stop-btn")) {
-          const deviceId = e.target.closest(".device-card").dataset.deviceId;
-          this.stopDevice(deviceId);
-        }
-      });
+    // 移除添加设备按钮，因为现在只是显示列表
+    const addDeviceBtn = document.getElementById("add-device");
+    if (addDeviceBtn) {
+      addDeviceBtn.style.display = "none";
+    }
+
+    // 移除模态框相关事件
+    const modal = document.getElementById("device-modal");
+    if (modal) {
+      modal.style.display = "none";
+    }
   }
 
   refreshDevices() {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify({ action: "LIST_DEVICES" }));
+      this.showStatus("正在获取设备列表...", "info");
     } else {
       this.showError("WebSocket连接未建立");
     }
@@ -109,226 +100,98 @@ class ScrcpyClient {
     switch (message.type) {
       case "DEVICE_LIST":
         this.updateDeviceList(message.devices);
-        break;
-      case "DEVICE_STARTED":
-        this.addDeviceCard(
-          message.deviceId,
-          message.videoUrl,
-          message.deviceInfo
-        );
+        if (message.devices.length > 0) {
+          this.showStatus(`发现 ${message.devices.length} 个设备`, "success");
+        } else {
+          this.showStatus("未检测到连接的设备", "warning");
+        }
         break;
       case "ERROR":
-        this.showError(message.message, message.deviceId);
+        this.showError(message.message);
         break;
+      default:
+        console.warn("Unknown message type:", message.type);
     }
   }
 
   updateDeviceList(devices) {
-    const deviceList = document.getElementById("device-list");
-    deviceList.innerHTML = "";
+    const container = document.getElementById("devices-container");
+    container.innerHTML = "";
 
     if (devices.length === 0) {
-      deviceList.innerHTML = '<div class="no-devices">未检测到设备</div>';
+      container.innerHTML = `
+        <div class="no-devices">
+          <h3>未检测到设备</h3>
+          <p>请确保：</p>
+          <ul>
+            <li>设备已通过USB连接到电脑</li>
+            <li>设备已启用USB调试</li>
+            <li>已授权此电脑进行调试</li>
+            <li>ADB已正确安装并添加到PATH</li>
+          </ul>
+          <button onclick="deviceManager.refreshDevices()">重新检测</button>
+        </div>
+      `;
       return;
     }
 
     devices.forEach((device) => {
-      const deviceItem = document.createElement("div");
-      deviceItem.className = "device-item";
-      deviceItem.innerHTML = `
-        <h3>${device.model}</h3>
-        <p>ID: ${device.id}</p>
-        <p>Android ${device.version} | ${device.resolution}</p>
-      `;
-      deviceItem.addEventListener("click", () => {
-        this.startDevice(device.id);
-        this.hideDeviceModal();
-      });
-      deviceList.appendChild(deviceItem);
-    });
-  }
-
-  showDeviceModal() {
-    document.getElementById("device-modal").style.display = "block";
-    this.refreshDevices();
-  }
-
-  hideDeviceModal() {
-    document.getElementById("device-modal").style.display = "none";
-  }
-
-  showError(message, deviceId = null) {
-    console.error(`Error: ${message}`, deviceId ? `(Device: ${deviceId})` : "");
-    alert(`错误: ${message}${deviceId ? `\n设备: ${deviceId}` : ""}`);
-  }
-
-  startDevice(deviceId) {
-    this.ws.send(
-      JSON.stringify({
-        action: "START_DEVICE",
-        deviceId,
-      })
-    );
-  }
-
-  stopDevice(deviceId) {
-    this.ws.send(
-      JSON.stringify({
-        action: "STOP_DEVICE",
-        deviceId,
-      })
-    );
-
-    const deviceCard = document.querySelector(
-      `.device-card[data-device-id="${deviceId}"]`
-    );
-    if (deviceCard) {
-      deviceCard.remove();
-    }
-  }
-
-  addDeviceCard(deviceId, videoUrl, deviceInfo) {
-    // 如果设备卡片已存在，先移除
-    const existingCard = document.querySelector(
-      `.device-card[data-device-id="${deviceId}"]`
-    );
-    if (existingCard) {
-      existingCard.remove();
-    }
-
-    // 创建新的设备卡片
-    const deviceCard = document.createElement("div");
-    deviceCard.className = "device-card";
-    deviceCard.dataset.deviceId = deviceId;
-
-    deviceCard.innerHTML = `
-      <div class="device-header">
+      const deviceCard = document.createElement("div");
+      deviceCard.className = "device-card";
+      deviceCard.innerHTML = `
         <div class="device-info">
-          <h3>${deviceInfo.model}</h3>
-          <p>ID: ${deviceId}</p>
-          <p>Android ${deviceInfo.version} | ${deviceInfo.resolution}</p>
+          <h3>${device.model}</h3>
+          <div class="device-info-item">
+            <strong>设备ID:</strong> <span>${device.id}</span>
+          </div>
+          <div class="device-info-item">
+            <strong>系统版本:</strong> <span>Android ${device.version}</span>
+          </div>
+          <div class="device-info-item">
+            <strong>分辨率:</strong> <span>${device.resolution}</span>
+          </div>
+          <div class="device-info-item">
+            <strong>序列号:</strong> <span>${device.serial}</span>
+          </div>
         </div>
         <div class="device-actions">
-          <button class="stop-btn">断开</button>
+          <div class="device-status">✓ 已连接</div>
         </div>
-      </div>
-      <div class="video-container">
-        <video autoplay playsinline></video>
-      </div>
-      <div class="device-controls">
-        <button class="control-btn" data-command="BACK">←</button>
-        <button class="control-btn" data-command="HOME">⌂</button>
-        <button class="control-btn" data-command="MENU">≡</button>
-        <button class="control-btn" data-command="VOLUME_UP">+</button>
-        <button class="control-btn" data-command="VOLUME_DOWN">-</button>
-      </div>
-    `;
-
-    // 添加到设备容器
-    document.getElementById("devices-container").appendChild(deviceCard);
-
-    // 设置视频流
-    const videoElement = deviceCard.querySelector("video");
-    videoElement.src = videoUrl;
-
-    // 添加触摸控制
-    this.setupTouchControls(videoElement, deviceId);
-
-    // 使用Broadway.js解码H.264流
-    this.setupH264Decoder(videoElement, deviceId, videoUrl);
-
-    // 添加触摸控制
-    this.setupTouchControls(videoElement, deviceId);
-  }
-
-  setupTouchControls(videoElement, deviceId) {
-    let isTouching = false;
-
-    videoElement.addEventListener("touchstart", (e) => {
-      isTouching = true;
-      const rect = videoElement.getBoundingClientRect();
-      const x = (e.touches[0].clientX - rect.left) / rect.width;
-      const y = (e.touches[0].clientY - rect.top) / rect.height;
-
-      this.sendTouchCommand(deviceId, x, y, "DOWN");
-      e.preventDefault();
-    });
-
-    videoElement.addEventListener("touchmove", (e) => {
-      if (!isTouching) return;
-      const rect = videoElement.getBoundingClientRect();
-      const x = (e.touches[0].clientX - rect.left) / rect.width;
-      const y = (e.touches[0].clientY - rect.top) / rect.height;
-
-      this.sendTouchCommand(deviceId, x, y, "MOVE");
-      e.preventDefault();
-    });
-
-    videoElement.addEventListener("touchend", (e) => {
-      isTouching = false;
-      this.sendTouchCommand(deviceId, 0, 0, "UP");
-      e.preventDefault();
+      `;
+      container.appendChild(deviceCard);
     });
   }
 
-  sendControlCommand(deviceId, command) {
-    let commandData = {};
-
-    switch (command) {
-      case "BACK":
-        commandData = {
-          command: "KEYCODE",
-          args: { keyCode: 4, action: "DOWN" },
-        };
-        break;
-      case "HOME":
-        commandData = {
-          command: "KEYCODE",
-          args: { keyCode: 3, action: "DOWN" },
-        };
-        break;
-      case "MENU":
-        commandData = {
-          command: "KEYCODE",
-          args: { keyCode: 82, action: "DOWN" },
-        };
-        break;
-      case "VOLUME_UP":
-        commandData = {
-          command: "KEYCODE",
-          args: { keyCode: 24, action: "DOWN" },
-        };
-        break;
-      case "VOLUME_DOWN":
-        commandData = {
-          command: "KEYCODE",
-          args: { keyCode: 25, action: "DOWN" },
-        };
-        break;
+  showStatus(message, type = "info") {
+    // 创建或更新状态显示
+    let statusDiv = document.getElementById("status-message");
+    if (!statusDiv) {
+      statusDiv = document.createElement("div");
+      statusDiv.id = "status-message";
+      statusDiv.className = "status-message";
+      document.querySelector(".container").insertBefore(statusDiv, document.querySelector(".devices-container"));
     }
 
-    this.ws.send(
-      JSON.stringify({
-        action: "CONTROL_DEVICE",
-        deviceId,
-        ...commandData,
-      })
-    );
+    statusDiv.className = `status-message status-${type}`;
+    statusDiv.textContent = message;
+
+    // 3秒后自动隐藏成功和信息消息
+    if (type === "success" || type === "info") {
+      setTimeout(() => {
+        if (statusDiv.textContent === message) {
+          statusDiv.style.display = "none";
+        }
+      }, 3000);
+    }
   }
 
-  sendTouchCommand(deviceId, x, y, action) {
-    this.ws.send(
-      JSON.stringify({
-        action: "CONTROL_DEVICE",
-        deviceId,
-        command: "TOUCH",
-        args: { x, y, action },
-      })
-    );
+  showError(message) {
+    console.error(`Error: ${message}`);
+    this.showStatus(`错误: ${message}`, "error");
   }
 }
 
-// 初始化客户端
+// 页面加载完成后初始化
 document.addEventListener("DOMContentLoaded", () => {
-  const client = new ScrcpyClient();
+  window.deviceManager = new DeviceManager();
 });

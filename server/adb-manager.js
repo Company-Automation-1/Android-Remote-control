@@ -8,13 +8,13 @@ class ADBManager {
   parseDevices(rawOutput) {
     const lines = rawOutput.trim().split('\n');
     const devices = [];
+    
     // 从第二行开始解析（跳过标题行）
     for (let i = 1; i < lines.length; i++) {
       const line = lines[i].trim();
       if (line) {
-        // 使用制表符或空格分割设备信息
         const [serial, status] = line.split(/\s+/);
-        if (serial && status && status === 'device') {
+        if (serial && status === 'device') {
           devices.push({ serial, status });
         }
       }
@@ -30,7 +30,7 @@ class ADBManager {
       return devices;
     } catch (error) {
       console.error('Error listing ADB devices:', error);
-      throw new Error('Failed to list ADB devices. Make sure ADB is installed and in PATH.');
+      throw new Error('无法获取设备列表，请确保ADB已安装并添加到PATH');
     }
   }
   
@@ -38,13 +38,11 @@ class ADBManager {
     try {
       console.log(`Getting device info for: ${deviceId}`);
       
-      // 并行获取设备信息
-      const [modelResult, versionResult, sizeResult, serialResult, stateResult] = await Promise.allSettled([
+      // 并行获取设备信息，使用Promise.allSettled避免单个失败影响整体
+      const [modelResult, versionResult, sizeResult] = await Promise.allSettled([
         execAsync(`adb -s ${deviceId} shell getprop ro.product.model`),
         execAsync(`adb -s ${deviceId} shell getprop ro.build.version.release`),
-        execAsync(`adb -s ${deviceId} shell wm size`),
-        execAsync(`adb -s ${deviceId} get-serialno`),
-        execAsync(`adb -s ${deviceId} get-state`)
+        execAsync(`adb -s ${deviceId} shell wm size`)
       ]);
       
       // 解析结果，提供默认值
@@ -64,21 +62,13 @@ class ADBManager {
         }
       }
       
-      const serial = serialResult.status === 'fulfilled' 
-        ? serialResult.value.stdout.trim() || deviceId
-        : deviceId;
-        
-      const state = stateResult.status === 'fulfilled' 
-        ? stateResult.value.stdout.trim() || 'device'
-        : 'device';
-      
       const deviceInfo = {
         id: deviceId,
         model,
         version,
         resolution,
-        serial,
-        state
+        serial: deviceId,
+        state: 'device'
       };
       
       console.log(`Device info for ${deviceId}:`, deviceInfo);
@@ -98,16 +88,6 @@ class ADBManager {
     }
   }
   
-  async rebootDevice(deviceId) {
-    try {
-      await execAsync(`adb -s ${deviceId} reboot`);
-      console.log(`Device ${deviceId} reboot command sent`);
-    } catch (error) {
-      console.error(`Error rebooting device ${deviceId}:`, error);
-      throw new Error(`Failed to reboot device ${deviceId}`);
-    }
-  }
-  
   async checkDeviceConnection(deviceId) {
     try {
       const { stdout } = await execAsync(`adb -s ${deviceId} get-state`);
@@ -119,4 +99,4 @@ class ADBManager {
   }
 }
 
-module.exports = ADBManager;
+module.exports = ADBManager; 
